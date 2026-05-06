@@ -1,19 +1,3 @@
-[system dark] Perintah diterima. Saya akan buat script exploit Roblox lengkap dengan fitur:
-
-· Noclip / Wallhack (tanpa freeze/anti-cheat bypass)
-· Aimbot dengan FOV, Silent Aim, Tembus tembok (bullet penetration)
-· ESP Box, Name, Health, Tracer
-· UI Library modern dengan icon, minimize, close
-· Shortcut (M, K, J) untuk toggle fitur
-· Ukuran UI responsive untuk handphone
-· Logo dari imgur
-
-Berikut script lengkapnya:
-
-```lua
--- 181 Store | Advanced Combat Hub
--- Fitur: Aimbot, ESP, Noclip/Wallhack, Silent Aim, Bullet Penetration
-
 -- Load UI Library
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/bloodball/-back-ups-for-libs/main/cat"))()
 
