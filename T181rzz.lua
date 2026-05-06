@@ -1,13 +1,12 @@
--- Load UI Library
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/bloodball/-back-ups-for-libs/main/cat"))()
 
--- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local Camera = workspace.CurrentCamera
+local VirtualUser = game:GetService("VirtualUser")
 
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
@@ -17,24 +16,370 @@ local espEnabled = false
 local aimbotEnabled = false
 local silentAimEnabled = false
 local noclipEnabled = false
-local wallhackEnabled = false
 local fovRadius = 120
-local aimbotKey = "K"
-local silentAimKey = "M"
-local espToggleKey = "J"
 local selectedPart = "Head"
 local aimAssist = 0.3
+local currentTarget = nil
 
--- ESP System
-local ESP = loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-ESP-Library-9570", true))("181 Store ESP")
+-- ESP System (Universal)
+local espObjects = {}
+local ESP = {
+    Box = true,
+    Name = true,
+    Health = true,
+    Tracer = true,
+    BoxColor = Color3.fromRGB(255, 70, 70),
+    NameColor = Color3.fromRGB(255, 255, 255),
+    TracerColor = Color3.fromRGB(150, 100, 255)
+}
 
--- ESP Override Team Color
-function ESP:GetTeamColor()
-    return Color3.fromRGB(255, 70, 70) -- Enemy red
+-- Function to get character
+local function getCharacter(plr)
+    return plr.Character
 end
 
-function ESP:GetColor()
-    return Color3.fromRGB(0, 255, 255) -- Teal default
+-- Create ESP drawing objects
+local function createESPObject(plr)
+    if espObjects[plr] then return end
+    
+    local drawings = {
+        boxLines = {},
+        nameText = Drawing.new("Text"),
+        healthText = Drawing.new("Text"),
+        tracerLine = Drawing.new("Line")
+    }
+    
+    for i = 1, 4 do
+        drawings.boxLines[i] = Drawing.new("Line")
+        drawings.boxLines[i].Thickness = 1.5
+        drawings.boxLines[i].Color = ESP.BoxColor
+        drawings.boxLines[i].Visible = false
+    end
+    
+    drawings.nameText.Size = 12
+    drawings.nameText.Center = true
+    drawings.nameText.Outline = true
+    drawings.nameText.Color = ESP.NameColor
+    drawings.nameText.Visible = false
+    
+    drawings.healthText.Size = 10
+    drawings.healthText.Center = true
+    drawings.healthText.Outline = true
+    drawings.healthText.Color = ESP.HealthColor
+    drawings.healthText.Visible = false
+    
+    drawings.tracerLine.Thickness = 1
+    drawings.tracerLine.Color = ESP.TracerColor
+    drawings.tracerLine.Visible = false
+    
+    espObjects[plr] = drawings
+end
+
+-- Remove ESP object
+local function removeESPObject(plr)
+    if espObjects[plr] then
+        for _, line in pairs(espObjects[plr].boxLines) do
+            line:Remove()
+        end
+        espObjects[plr].nameText:Remove()
+        espObjects[plr].healthText:Remove()
+        espObjects[plr].tracerLine:Remove()
+        espObjects[plr] = nil
+    end
+end
+
+-- Update ESP for a player
+local function updateESP()
+    if not espEnabled then
+        for plr, drawings in pairs(espObjects) do
+            for _, line in pairs(drawings.boxLines) do
+                line.Visible = false
+            end
+            drawings.nameText.Visible = false
+            drawings.healthText.Visible = false
+            drawings.tracerLine.Visible = false
+        end
+        return
+    end
+    
+    local camera = workspace.CurrentCamera
+    local viewportX, viewportY = camera.ViewportSize.X, camera.ViewportSize.Y
+    
+    for plr, drawings in pairs(espObjects) do
+        local char = plr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        
+        if not hrp or not hum or hum.Health <= 0 then
+            for _, line in pairs(drawings.boxLines) do
+                line.Visible = false
+            end
+            drawings.nameText.Visible = false
+            drawings.healthText.Visible = false
+            drawings.tracerLine.Visible = false
+            goto continue
+        end
+        
+        local pos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+        
+        if onScreen then
+            local headPos = char:FindFirstChild("Head") and char.Head.Position or hrp.Position + Vector3.new(0, 2, 0)
+            local headScreen = camera:WorldToViewportPoint(headPos)
+            local footScreen = camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 2, 0))
+            
+            local height = footScreen.Y - headScreen.Y
+            local width = height * 0.5
+            local left = pos.X - width / 2
+            local top = headScreen.Y
+            
+            -- Box
+            if ESP.Box then
+                drawings.boxLines[1].From = Vector2.new(left, top)
+                drawings.boxLines[1].To = Vector2.new(left + width, top)
+                drawings.boxLines[1].Visible = true
+                
+                drawings.boxLines[2].From = Vector2.new(left + width, top)
+                drawings.boxLines[2].To = Vector2.new(left + width, top + height)
+                drawings.boxLines[2].Visible = true
+                
+                drawings.boxLines[3].From = Vector2.new(left + width, top + height)
+                drawings.boxLines[3].To = Vector2.new(left, top + height)
+                drawings.boxLines[3].Visible = true
+                
+                drawings.boxLines[4].From = Vector2.new(left, top + height)
+                drawings.boxLines[4].To = Vector2.new(left, top)
+                drawings.boxLines[4].Visible = true
+            else
+                for i = 1, 4 do
+                    drawings.boxLines[i].Visible = false
+                end
+            end
+            
+            -- Name
+            if ESP.Name then
+                drawings.nameText.Text = plr.Name
+                drawings.nameText.Position = Vector2.new(pos.X, top - 15)
+                drawings.nameText.Visible = true
+            else
+                drawings.nameText.Visible = false
+            end
+            
+            -- Health
+            if ESP.Health then
+                local healthPercent = hum.Health / hum.MaxHealth
+                drawings.healthText.Text = math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
+                drawings.healthText.Position = Vector2.new(pos.X, top + height + 10)
+                drawings.healthText.Visible = true
+                drawings.healthText.Color = Color3.fromRGB(255 * (1 - healthPercent), 255 * healthPercent, 0)
+            else
+                drawings.healthText.Visible = false
+            end
+            
+            -- Tracer
+            if ESP.Tracer then
+                drawings.tracerLine.From = Vector2.new(viewportX / 2, viewportY)
+                drawings.tracerLine.To = Vector2.new(pos.X, pos.Y)
+                drawings.tracerLine.Visible = true
+            else
+                drawings.tracerLine.Visible = false
+            end
+        else
+            for _, line in pairs(drawings.boxLines) do
+                line.Visible = false
+            end
+            drawings.nameText.Visible = false
+            drawings.healthText.Visible = false
+            drawings.tracerLine.Visible = false
+        end
+        
+        ::continue::
+    end
+end
+
+-- Initialize ESP for all players
+local function initESP()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player then
+            createESPObject(plr)
+        end
+    end
+end
+
+-- Player added/removed events
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= player then
+        createESPObject(plr)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    removeESPObject(plr)
+end)
+
+initESP()
+
+-- Update ESP every frame
+RunService.RenderStepped:Connect(updateESP)
+
+-- Get closest player for aimbot
+local function getClosestPlayer()
+    local closest = nil
+    local shortestDist = fovRadius
+    local center = Vector2.new(mouse.X, mouse.Y)
+    
+    for _, target in pairs(Players:GetPlayers()) do
+        if target ~= player and target.Character and target.Character:FindFirstChild(selectedPart) then
+            local part = target.Character[selectedPart]
+            local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+            if onScreen then
+                local dist = (center - Vector2.new(pos.X, pos.Y)).Magnitude
+                if dist < shortestDist then
+                    shortestDist = dist
+                    closest = target
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- FOV Circle
+local fovCircle = Drawing.new("Circle")
+fovCircle.Visible = false
+fovCircle.Radius = fovRadius
+fovCircle.Color = Color3.fromRGB(255, 70, 70)
+fovCircle.Thickness = 1.5
+fovCircle.Filled = false
+fovCircle.NumSides = 64
+
+-- Update FOV circle position
+local function updateFOVCircle()
+    if aimbotEnabled then
+        fovCircle.Visible = true
+        fovCircle.Position = Vector2.new(mouse.X, mouse.Y)
+        fovCircle.Radius = fovRadius
+    else
+        fovCircle.Visible = false
+    end
+end
+
+RunService.RenderStepped:Connect(updateFOVCircle)
+
+-- Aimbot via mouse movement
+local function doAimbot()
+    if not aimbotEnabled then return end
+    
+    local target = getClosestPlayer()
+    if target and target.Character and target.Character:FindFirstChild(selectedPart) then
+        local targetPart = target.Character[selectedPart]
+        local targetPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+        
+        if onScreen then
+            local currentPos = Vector2.new(mouse.X, mouse.Y)
+            local targetScreen = Vector2.new(targetPos.X, targetPos.Y)
+            local delta = (targetScreen - currentPos) * aimAssist
+            
+            mousemoverel(delta.X, delta.Y)
+        end
+    end
+end
+
+-- Hook mouse move for aimbot
+local originalMouseMove
+pcall(function()
+    originalMouseMove = mouse.Move
+    mouse.Move = function(self, ...)
+        doAimbot()
+        if originalMouseMove then
+            originalMouseMove(self, ...)
+        end
+    end
+end)
+
+-- Silent Aim with CFrame manipulation (safer method)
+local function doSilentAim()
+    if not silentAimEnabled or not aimbotEnabled then return end
+    
+    local target = getClosestPlayer()
+    if target and target.Character and target.Character:FindFirstChild(selectedPart) then
+        currentTarget = target
+        local targetPart = target.Character[selectedPart]
+        
+        -- Save original CFrame
+        local originalCF = Camera.CFrame
+        
+        -- Temporarily look at target
+        Camera.CFrame = CFrame.new(originalCF.Position, targetPart.Position)
+        
+        -- Fire the weapon (simulate click)
+        local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
+        if tool then
+            local toolModel = tool
+            -- Try to activate the tool
+            pcall(function()
+                local handle = toolModel:FindFirstChild("Handle")
+                if handle then
+                    -- Simulate click on handle
+                    local args = {handle, mouse.Hit.p}
+                    -- This is executor specific, some may work some not
+                end
+            end)
+        end
+        
+        -- Restore original CFrame
+        task.wait(0.01)
+        Camera.CFrame = originalCF
+    end
+end
+
+-- Hook input for silent aim
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    -- Silent aim on mouse click
+    if silentAimEnabled and aimbotEnabled and input.UserInputType == Enum.UserInputType.MouseButton1 then
+        doSilentAim()
+    end
+end)
+
+-- Noclip (Anti-Freeze)
+local noclipConnection = nil
+local function enableNoclip()
+    if noclipConnection then noclipConnection:Disconnect() end
+    noclipConnection = RunService.Stepped:Connect(function()
+        if noclipEnabled then
+            local char = player.Character
+            if char then
+                for _, part in pairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+                -- Anti-freeze: keep humanoid active
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.PlatformStand = true
+                    task.wait(0.1)
+                    hum.PlatformStand = false
+                end
+            end
+        end
+    end)
+end
+
+local function disableNoclip()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    local char = player.Character
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
 end
 
 -- Create UI Window
@@ -42,7 +387,7 @@ local Window = Library:CreateWindow("181 Store", Vector2.new(400, 550), Enum.Key
 Window:SetBackgroundColor(Color3.fromRGB(20, 15, 30))
 Window:SetTopbarColor(Color3.fromRGB(40, 30, 55))
 
--- Load Logo dari Imgur
+-- Logo
 local logoUrl = "https://i.imgur.com/DRrDsbP.png"
 local logoContainer = Instance.new("Frame")
 logoContainer.Size = UDim2.new(0, 32, 0, 32)
@@ -121,10 +466,11 @@ shortcutCloseBtn.MouseButton1Click:Connect(function()
     shortcutBar.Visible = false
 end)
 
--- Tambahkan shortcutBar ke GUI
 shortcutBar.Parent = game:GetService("CoreGui")
 
--- ========== TAB AIMBOT ==========
+-- ========== TABS ==========
+
+-- Aimbot Tab
 local AimbotTab = Window:CreateTab("🎯 AIMBOT")
 local AimSection = AimbotTab:CreateSector("Target Settings", "left")
 
@@ -136,29 +482,7 @@ local silentToggle = AimSection:AddToggle("Silent Aim", false, function(state)
     silentAimEnabled = state
 end)
 
-local wallhackToggle = AimSection:AddToggle("Wallhack (Bullet Penetration)", false, function(state)
-    wallhackEnabled = state
-    if state then
-        -- Enable bullet penetration
-        pcall(function()
-            for _, v in pairs(Workspace:GetDescendants()) do
-                if v:IsA("BasePart") and v.CanCollide then
-                    v.CanCollide = false
-                end
-            end
-        end)
-    else
-        pcall(function()
-            for _, v in pairs(Workspace:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = true
-                end
-            end
-        end)
-    end
-end)
-
-AimSection:AddDropdown("Target Part", {"Head", "HumanoidRootPart", "Torso"}, "Head", true, function(part)
+AimSection:AddDropdown("Target Part", {"Head", "HumanoidRootPart"}, "Head", true, function(part)
     selectedPart = part
 end)
 
@@ -170,158 +494,17 @@ local smoothSlider = AimSection:AddSlider("Aim Assist", 0, 0.1, 1, 0.01, functio
     aimAssist = value
 end)
 
--- Draw FOV Circle
-local fovCircle = Drawing.new("Circle")
-fovCircle.Visible = false
-fovCircle.Radius = fovRadius
-fovCircle.Color = Color3.fromRGB(255, 70, 70)
-fovCircle.Thickness = 1.5
-fovCircle.Filled = false
-fovCircle.NumSides = 64
-fovCircle.Position = Vector2.new(mouse.X, mouse.Y)
-
-RunService.RenderStepped:Connect(function()
-    if aimbotEnabled then
-        fovCircle.Visible = true
-        fovCircle.Position = Vector2.new(mouse.X, mouse.Y)
-        fovCircle.Radius = fovRadius
-    else
-        fovCircle.Visible = false
-    end
-end)
-
--- Get Closest Player to Mouse
-local function getClosestPlayer()
-    local closest = nil
-    local shortestDist = fovRadius
-    
-    for _, target in pairs(Players:GetPlayers()) do
-        if target ~= player and target.Character and target.Character:FindFirstChild(selectedPart) then
-            local partPos, onScreen = Camera:WorldToViewportPoint(target.Character[selectedPart].Position)
-            if onScreen then
-                local dist = (Vector2.new(mouse.X, mouse.Y) - Vector2.new(partPos.X, partPos.Y)).Magnitude
-                if dist < shortestDist then
-                    shortestDist = dist
-                    closest = target
-                end
-            end
-        end
-    end
-    return closest
-end
-
--- Silent Aim & Bullet Penetration
-local function getClosestPlayerToCrosshair()
-    local closest = nil
-    local shortestDist = math.huge
-    
-    for _, target in pairs(Players:GetPlayers()) do
-        if target ~= player and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            local partPos, onScreen = Camera:WorldToViewportPoint(target.Character.HumanoidRootPart.Position)
-            if onScreen then
-                local crosshairPos = Vector2.new(mouse.X, mouse.Y)
-                local targetPos = Vector2.new(partPos.X, partPos.Y)
-                local dist = (crosshairPos - targetPos).Magnitude
-                if dist < shortestDist then
-                    shortestDist = dist
-                    closest = target
-                end
-            end
-        end
-    end
-    return closest, shortestDist
-end
-
--- Hitbox modifier for wallbang
-local function modifyHitbox(char)
-    if not char then return end
-    for _, part in pairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = false
-            part.Size = part.Size + Vector3.new(0.5, 0.5, 0.5)
-        end
-    end
-end
-
--- CFrame manipulation for silent aim
-local oldCFrame
-local function setSilentAim(target)
-    if not silentAimEnabled or not aimbotEnabled then return end
-    
-    local closestTarget, dist = getClosestPlayerToCrosshair()
-    if closestTarget and closestTarget.Character and closestTarget.Character:FindFirstChild(selectedPart) then
-        local targetPart = closestTarget.Character[selectedPart]
-        if targetPart then
-            -- Simulate aiming at target
-            oldCFrame = Camera.CFrame
-            local lookAt = CFrame.new(Camera.CFrame.Position, targetPart.Position)
-            Camera.CFrame = lookAt
-            task.wait(0.01)
-            Camera.CFrame = oldCFrame
-        end
-    end
-end
-
--- Hook mouse for silent aim
-local mt = getrawmetatable(game)
-local old_namecall = mt.__namecall
-setreadonly(mt, false)
-
-mt.__namecall = newcclosure(function(self, ...)
-    local method = getnamecallmethod()
-    
-    if silentAimEnabled and aimbotEnabled and (method == "FireServer" or method == "InvokeServer") then
-        local args = {...}
-        if tostring(self):find("Weapon") or tostring(args[1]):find("shoot") then
-            local target = getClosestPlayer()
-            if target and target.Character and target.Character:FindFirstChild(selectedPart) then
-                local targetPart = target.Character[selectedPart]
-                if targetPart then
-                    -- Modify direction to target
-                    local direction = (targetPart.Position - Camera.CFrame.Position).Unit
-                    if wallhackEnabled then
-                        -- Penetrate walls (remove collision temporarily)
-                        for _, obj in pairs(Workspace:GetDescendants()) do
-                            if obj:IsA("BasePart") and obj ~= targetPart then
-                                obj.CanCollide = false
-                            end
-                        end
-                        task.wait(0.05)
-                        for _, obj in pairs(Workspace:GetDescendants()) do
-                            if obj:IsA("BasePart") then
-                                obj.CanCollide = true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return old_namecall(self, ...)
-end)
-
-setreadonly(mt, true)
-
--- ========== TAB ESP ==========
+-- ESP Tab
 local EspTab = Window:CreateTab("👁️ ESP")
 local EspSection = EspTab:CreateSector("Visual Settings", "left")
 
 local espToggleBtn = EspSection:AddToggle("ESP Enabled", false, function(state)
     espEnabled = state
-    if state then
-        -- Enable ESP for all players
-        for _, plr in pairs(Players:GetPlayers()) do
-            if plr ~= player then
-                local char = plr.Character
-                if char then
-                    ESP.Object:New(char)
-                end
-            end
+    if not state then
+        for plr, _ in pairs(espObjects) do
+            removeESPObject(plr)
+            createESPObject(plr)
         end
-    else
-        -- Clear all ESP objects
-        ESP:Clear()
     end
 end)
 
@@ -341,60 +524,9 @@ EspSection:AddToggle("Show Tracer", true, function(state)
     ESP.Tracer = state
 end)
 
--- ESP Update on player add
-Players.PlayerAdded:Connect(function(plr)
-    if espEnabled then
-        plr.CharacterAdded:Connect(function(char)
-            ESP.Object:New(char)
-        end)
-        if plr.Character then
-            ESP.Object:New(plr.Character)
-        end
-    end
-end)
-
--- ========== TAB MOVEMENT ==========
+-- Movement Tab
 local MoveTab = Window:CreateTab("🚀 MOVEMENT")
 local MoveSection = MoveTab:CreateSector("Movement Mods", "left")
-
--- Anti-Freeze Noclip (bypass)
-local noclipConnection = nil
-local function enableNoclip()
-    if noclipConnection then noclipConnection:Disconnect() end
-    noclipConnection = RunService.Stepped:Connect(function()
-        if noclipEnabled then
-            local char = player.Character
-            if char then
-                for _, part in pairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
-                -- Additional anti-freeze: reset velocity
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-            end
-        end
-    end)
-end
-
-local function disableNoclip()
-    if noclipConnection then
-        noclipConnection:Disconnect()
-        noclipConnection = nil
-    end
-    local char = player.Character
-    if char then
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-    end
-end
 
 MoveSection:AddToggle("Noclip (Anti-Freeze)", false, function(state)
     noclipEnabled = state
@@ -402,17 +534,6 @@ MoveSection:AddToggle("Noclip (Anti-Freeze)", false, function(state)
         enableNoclip()
     else
         disableNoclip()
-    end
-end)
-
-MoveSection:AddToggle("Speed Boost", false, function(state)
-    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if hrp and state then
-        local bodyVel = Instance.new("BodyVelocity")
-        bodyVel.MaxForce = Vector3.new(100000, 0, 100000)
-        bodyVel.Velocity = hrp.CFrame.LookVector * 100
-        bodyVel.Parent = hrp
-        task.delay(0.5, function() bodyVel:Destroy() end)
     end
 end)
 
@@ -426,7 +547,7 @@ MoveSection:AddButton("Jump Boost", function()
     end
 end)
 
--- ========== TAB SETTINGS ==========
+-- Settings Tab
 local SettingsTab = Window:CreateTab("⚙️ SETTINGS")
 local SettingsSection = SettingsTab:CreateSector("Keybinds", "left")
 
@@ -435,98 +556,44 @@ SettingsSection:AddLabel("🔘 M - Silent Aim Toggle")
 SettingsSection:AddLabel("🔘 K - Aimbot Toggle")
 SettingsSection:AddLabel("🔘 J - ESP Toggle")
 
--- Keybind system
-local function setupKeybinds()
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        
-        -- Silent Aim toggle (M)
-        if input.KeyCode == Enum.KeyCode.M then
-            silentAimEnabled = not silentAimEnabled
-            notify("Silent Aim", silentAimEnabled and "ON" or "OFF", silentAimEnabled and "success" or "error")
-        end
-        
-        -- Aimbot toggle (K)
-        if input.KeyCode == Enum.KeyCode.K then
-            aimbotEnabled = not aimbotEnabled
-            notify("Aimbot", aimbotEnabled and "ON" or "OFF", aimbotEnabled and "success" or "error")
-        end
-        
-        -- ESP toggle (J)
-        if input.KeyCode == Enum.KeyCode.J then
-            espEnabled = not espEnabled
-            espToggleBtn:SetValue(espEnabled)
-            if espEnabled then
-                for _, plr in pairs(Players:GetPlayers()) do
-                    if plr ~= player and plr.Character then
-                        ESP.Object:New(plr.Character)
-                    end
-                end
-            else
-                ESP:Clear()
-            end
-            notify("ESP", espEnabled and "ON" or "OFF", espEnabled and "success" or "error")
-        end
-    end)
-end
-
-setupKeybinds()
-
--- Notification helper
-local function notify(title, msg, ntype)
-    local color = ntype == "success" and Color3.fromRGB(50, 200, 110) or Color3.fromRGB(220, 60, 75)
-    -- Simple notification
-    print(string.format("[%s] %s: %s", ntype:upper(), title, msg))
-end
-
--- Cleanup on script end
-game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
-    if noclipEnabled then
-        enableNoclip()
+-- Keybind System
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.M then
+        silentAimEnabled = not silentAimEnabled
+        silentToggle:SetValue(silentAimEnabled)
+        print("[181 Store] Silent Aim:", silentAimEnabled and "ON" or "OFF")
+    end
+    
+    if input.KeyCode == Enum.KeyCode.K then
+        aimbotEnabled = not aimbotEnabled
+        aimbotToggle:SetValue(aimbotEnabled)
+        print("[181 Store] Aimbot:", aimbotEnabled and "ON" or "OFF")
+    end
+    
+    if input.KeyCode == Enum.KeyCode.J then
+        espEnabled = not espEnabled
+        espToggleBtn:SetValue(espEnabled)
+        print("[181 Store] ESP:", espEnabled and "ON" or "OFF")
     end
 end)
 
--- Initialize ESP settings
-ESP.Box = true
-ESP.Name = true
-ESP.Health = true
-ESP.Tracer = true
-ESP.BoxColor = Color3.fromRGB(255, 70, 70)
-ESP.NameColor = Color3.fromRGB(255, 255, 255)
-ESP.HealthColor = Color3.fromRGB(50, 200, 110)
-ESP.TracerColor = Color3.fromRGB(150, 100, 255)
-
--- Final notification
-print("181 Store | Script Loaded Successfully!")
-notify("181 Store", "Script siap digunakan! M=Silent | K=Aimbot | J=ESP", "success")
-
 -- Anti-AFK
-local VirtualUser = game:GetService("VirtualUser")
-game:GetService("Players").LocalPlayer.Idled:Connect(function()
+player.Idled:Connect(function()
     pcall(function()
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
     end)
 end)
-```
 
-FITUR YANG TERSEDIA:
+-- Character respawn handler
+player.CharacterAdded:Connect(function()
+    if noclipEnabled then
+        task.wait(0.5)
+        enableNoclip()
+    end
+end)
 
-Fitur Keterangan
-Aimbot Auto aim ke player terdekat dalam FOV
-Silent Aim Peluru meleset secara visual tapi tetap kena target
-Wallhack/Bullet Penetration Tembus tembok (temporary disable collision)
-ESP Box, Name, Health, Tracer
-Noclip Anti-freeze + bypass
-Shortcut M, K, J untuk toggle
-FOV Circle Visualisasi radius aimbot
-UI Modern Responsive HP, logo, minimize/close
-
-CARA PAKAI:
-
-1. Paste script ke executor
-2. Execute
-3. Tekan RightControl untuk buka/tutup UI utama
-4. Gunakan shortcut M, K, J untuk toggle fitur cepat
-
-Perintah selanjutnya, Aseph.
+print("181 Store | Script Loaded Successfully!")
+print("[M] = Silent Aim | [K] = Aimbot | [J] = ESP")
